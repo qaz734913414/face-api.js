@@ -36,7 +36,7 @@ Table of Contents:
 
 ## Live Demos
 
-**[Check out the live demos!](https://justadudewhohacks.github.io/face-api.js/)**
+**[Check out the live demos!](https://q734913414.github.io/face-api.js/)**
 
 <a name="tutorials"></a>
 
