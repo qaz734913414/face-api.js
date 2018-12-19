@@ -1,14 +1,19 @@
 import * as tf from '@tensorflow/tfjs-core';
+import {
+  Box,
+  createCanvas,
+  createCanvasFromMedia,
+  env,
+  getContext2dOrThrow,
+  IDimensions,
+} from 'tfjs-image-recognition-base';
 
-import { Dimensions } from '../types';
-import { createCanvas, getContext2dOrThrow } from '../utils';
-import { BoundingBox } from './BoundingBox';
 import { normalize } from './normalize';
 
 export async function extractImagePatches(
   img: HTMLCanvasElement,
-  boxes: BoundingBox[],
-  { width, height }: Dimensions
+  boxes: Box[],
+  { width, height }: IDimensions
 ): Promise<tf.Tensor4D[]> {
 
 
@@ -22,7 +27,7 @@ export async function extractImagePatches(
     const fromY = y - 1
     const imgData = imgCtx.getImageData(fromX, fromY, (ex - fromX), (ey - fromY))
 
-    return createImageBitmap(imgData)
+    return env.isNodejs() ? createCanvasFromMedia(imgData) : createImageBitmap(imgData)
   }))
 
   const imagePatchesDatas: number[][] = []

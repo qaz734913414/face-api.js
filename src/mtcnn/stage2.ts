@@ -1,14 +1,14 @@
 import * as tf from '@tensorflow/tfjs-core';
+import { Box, nonMaxSuppression } from 'tfjs-image-recognition-base';
 
-import { BoundingBox } from './BoundingBox';
 import { extractImagePatches } from './extractImagePatches';
-import { nms } from './nms';
+import { MtcnnBox } from './MtcnnBox';
 import { RNet } from './RNet';
 import { RNetParams } from './types';
 
 export async function stage2(
   img: HTMLCanvasElement,
-  inputBoxes: BoundingBox[],
+  inputBoxes: Box[],
   scoreThreshold: number,
   params: RNetParams,
   stats: any
@@ -42,12 +42,12 @@ export async function stage2(
   const filteredBoxes = indices.map(idx => inputBoxes[idx])
   const filteredScores = indices.map(idx => scores[idx])
 
-  let finalBoxes: BoundingBox[] = []
+  let finalBoxes: Box[] = []
   let finalScores: number[] = []
 
   if (filteredBoxes.length > 0) {
     ts = Date.now()
-    const indicesNms = nms(
+    const indicesNms = nonMaxSuppression(
       filteredBoxes,
       filteredScores,
       0.7
@@ -55,7 +55,7 @@ export async function stage2(
     stats.stage2_nms = Date.now() - ts
 
     const regions = indicesNms.map(idx =>
-      new BoundingBox(
+      new MtcnnBox(
         rnetOuts[indices[idx]].regions.get(0, 0),
         rnetOuts[indices[idx]].regions.get(0, 1),
         rnetOuts[indices[idx]].regions.get(0, 2),

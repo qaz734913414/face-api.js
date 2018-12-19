@@ -1,24 +1,20 @@
 import * as tf from '@tensorflow/tfjs-core';
+import { NetInput, NeuralNetwork, Point, Rect, TNetInput, toNetInput } from 'tfjs-image-recognition-base';
 
-import { NeuralNetwork } from '../commons/NeuralNetwork';
-import { FaceDetection } from '../FaceDetection';
-import { NetInput } from '../NetInput';
-import { Point } from '../Point';
-import { Rect } from '../Rect';
-import { toNetInput } from '../toNetInput';
-import { TNetInput } from '../types';
+import { FaceDetection } from '../classes/FaceDetection';
+import { FaceDetectionWithLandmarks } from '../classes/FaceDetectionWithLandmarks';
+import { FaceLandmarks5 } from '../classes/FaceLandmarks5';
 import { bgrToRgbTensor } from './bgrToRgbTensor';
 import { CELL_SIZE } from './config';
 import { extractParams } from './extractParams';
-import { FaceLandmarks5 } from './FaceLandmarks5';
-import { getDefaultMtcnnForwardParams } from './getDefaultMtcnnForwardParams';
+import { extractParamsFromWeigthMap } from './extractParamsFromWeigthMap';
 import { getSizesForScale } from './getSizesForScale';
-import { loadQuantizedParams } from './loadQuantizedParams';
+import { IMtcnnOptions, MtcnnOptions } from './MtcnnOptions';
 import { pyramidDown } from './pyramidDown';
 import { stage1 } from './stage1';
 import { stage2 } from './stage2';
 import { stage3 } from './stage3';
-import { MtcnnForwardParams, MtcnnResult, NetParams } from './types';
+import { NetParams } from './types';
 
 export class Mtcnn extends NeuralNetwork<NetParams> {
 
@@ -28,8 +24,8 @@ export class Mtcnn extends NeuralNetwork<NetParams> {
 
   public async forwardInput(
     input: NetInput,
-    forwardParams: MtcnnForwardParams
-  ): Promise<{ results: MtcnnResult[], stats: any }> {
+    forwardParams: IMtcnnOptions = {}
+  ): Promise<{ results: FaceDetectionWithLandmarks<FaceLandmarks5>[], stats: any }> {
 
     const { params } = this
 
@@ -37,7 +33,6 @@ export class Mtcnn extends NeuralNetwork<NetParams> {
       throw new Error('Mtcnn - load model before inference')
     }
 
-    const inputTensor = input.inputs[0]
     const inputCanvas = input.canvases[0]
 
     if (!inputCanvas) {
@@ -50,14 +45,13 @@ export class Mtcnn extends NeuralNetwork<NetParams> {
 
     const imgTensor = tf.tidy(() =>
       bgrToRgbTensor(
-        tf.expandDims(inputTensor).toFloat() as tf.Tensor4D
+        tf.expandDims(tf.fromPixels(inputCanvas)).toFloat() as tf.Tensor4D
       )
     )
 
     const onReturn = (results: any) => {
       // dispose tensors on return
       imgTensor.dispose()
-      input.dispose()
       stats.total = Date.now() - tsTotal
       return results
     }
@@ -70,7 +64,7 @@ export class Mtcnn extends NeuralNetwork<NetParams> {
       maxNumScales,
       scoreThresholds,
       scaleSteps
-    } = Object.assign({}, getDefaultMtcnnForwardParams(), forwardParams)
+    } = new MtcnnOptions(forwardParams)
 
     const scales = (scaleSteps || pyramidDown(minFaceSize, scaleFactor, [height, width]))
       .filter(scale => {
@@ -107,8 +101,8 @@ export class Mtcnn extends NeuralNetwork<NetParams> {
     const out3 = await stage3(inputCanvas, out2.boxes, scoreThresholds[2], params.onet, stats)
     stats.total_stage3 = Date.now() - ts
 
-    const results = out3.boxes.map((box, idx) => ({
-      faceDetection: new FaceDetection(
+    const results = out3.boxes.map((box, idx) => new FaceDetectionWithLandmarks<FaceLandmarks5>(
+      new FaceDetection(
         out3.scores[idx],
         new Rect(
           box.left / width,
@@ -121,22 +115,22 @@ export class Mtcnn extends NeuralNetwork<NetParams> {
           width
         }
       ),
-      faceLandmarks: new FaceLandmarks5(
-        out3.points[idx].map(pt => pt.div(new Point(width, height))),
-        { width, height }
+      new FaceLandmarks5(
+        out3.points[idx].map(pt => pt.sub(new Point(box.left, box.top)).div(new Point(box.width, box.height))),
+        { width: box.width, height: box.height }
       )
-    }))
+    ))
 
     return onReturn({ results, stats })
   }
 
   public async forward(
     input: TNetInput,
-    forwardParams: MtcnnForwardParams
-  ): Promise<MtcnnResult[]> {
+    forwardParams: IMtcnnOptions = {}
+  ): Promise<FaceDetectionWithLandmarks<FaceLandmarks5>[]> {
     return (
       await this.forwardInput(
-        await toNetInput(input, true, true),
+        await toNetInput(input),
         forwardParams
       )
     ).results
@@ -144,17 +138,20 @@ export class Mtcnn extends NeuralNetwork<NetParams> {
 
   public async forwardWithStats(
     input: TNetInput,
-    forwardParams: MtcnnForwardParams
-  ): Promise<{ results: MtcnnResult[], stats: any }> {
+    forwardParams: IMtcnnOptions = {}
+  ): Promise<{ results: FaceDetectionWithLandmarks<FaceLandmarks5>[], stats: any }> {
     return this.forwardInput(
-      await toNetInput(input, true, true),
+      await toNetInput(input),
       forwardParams
     )
   }
 
-  // none of the param tensors are quantized yet
-  protected loadQuantizedParams(uri: string | undefined) {
-    return loadQuantizedParams(uri)
+  protected getDefaultModelName(): string {
+    return 'mtcnn_model'
+  }
+
+  protected extractParamsFromWeigthMap(weightMap: tf.NamedTensorMap) {
+    return extractParamsFromWeigthMap(weightMap)
   }
 
   protected extractParams(weights: Float32Array) {
